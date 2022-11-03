@@ -1,0 +1,60 @@
+create or replace procedure carga_incremental_cliente
+as
+TABLE_DOES_NOT_EXIST EXCEPTION;
+PRAGMA EXCEPTION_INIT(TABLE_DOES_NOT_EXIST, -942);
+crea_tabla_temp varchar(2000);
+begin
+BEGIN
+    EXECUTE IMMEDIATE 'truncate table temp_cliente';
+    EXECUTE IMMEDIATE 'DROP TABLE TEMP_CLIENTE';
+EXCEPTION
+    WHEN TABLE_DOES_NOT_EXIST THEN NULL;
+END; 
+crea_tabla_temp := 'CREATE GLOBAL TEMPORARY TABLE TEMP_CLIENTE ON COMMIT PRESERVE ROWS AS SELECT * FROM(
+  (select DNI, CUENTA, NOMBRE, APELLIDO1, APELLIDO2, C_O.ID_PROV, DIR, C_L.FEC_AUDIT from DIM_CLIENTE C_L
+    right outer join (SELECT 
+    C.DNI,
+    C.CUENTA,
+    C.NOMBRE,
+    C.APELLIDO1,
+    C.APELLIDO2,
+    D.ID_PROV,
+    C.DIR
+    FROM CLIENTE C LEFT OUTER JOIN DIM_PROV D ON C.CIUDAD = UPPER(D.DES_NOM_PROV)) C_O
+    ON (C_O.DNI = C_L.ID_DNI and C_O.CUENTA = C_L.COD_CUENTA and C_O.NOMBRE = C_L.DES_NOMBRE and C_O.APELLIDO1 = C_L.DES_APE1 
+      and C_O.APELLIDO2 = C_L.DES_APE2 and C_O.ID_PROV = C_L.ID_PROV and C_O.DIR = C_L.DES_DIR) where C_L.ID_DNI IS NOT NULL)  
+    UNION
+    (select C_O.* from DIM_CLIENTE C_L
+    right outer join (SELECT 
+    C.DNI,
+    C.CUENTA,
+    C.NOMBRE,
+    C.APELLIDO1,
+    C.APELLIDO2,
+    D.ID_PROV,
+    C.DIR,
+    SYSTIMESTAMP
+    FROM CLIENTE C LEFT OUTER JOIN DIM_PROV D ON C.CIUDAD = UPPER(D.DES_NOM_PROV)) C_O 
+    ON (C_O.DNI = C_L.ID_DNI) where C_L.ID_DNI is null
+    )
+    UNION
+    (select C_O.* FROM DIM_CLIENTE C_L
+    JOIN (SELECT 
+    C.DNI,
+    C.CUENTA,
+    C.NOMBRE,
+    C.APELLIDO1,
+    C.APELLIDO2,
+    D.ID_PROV,
+    C.DIR,
+    SYSTIMESTAMP
+    FROM CLIENTE C LEFT OUTER JOIN DIM_PROV D ON C.CIUDAD = UPPER(D.DES_NOM_PROV)) C_O
+    ON (C_O.DNI = C_L.ID_DNI) WHERE (C_O.CUENTA != C_L.COD_CUENTA OR C_O.NOMBRE != C_L.DES_NOMBRE 
+      OR C_O.APELLIDO1 != C_L.DES_APE1 OR C_O.APELLIDO2 != C_L.DES_APE2 OR C_O.ID_PROV != C_L.ID_PROV OR C_O.DIR != C_L.DES_DIR)
+    )
+)';
+execute immediate crea_tabla_temp;
+execute immediate 'TRUNCATE TABLE DIM_CLIENTE';
+execute immediate 'insert into dim_cliente select * from TEMP_CLIENTE';
+commit;
+end;
